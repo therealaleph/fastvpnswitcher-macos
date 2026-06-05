@@ -11,6 +11,7 @@ PLIST="$LAUNCH_AGENT_DIR/com.shin.fastvpnswitcher.watcher.plist"
 LABEL="com.shin.fastvpnswitcher.watcher"
 UID_VALUE="$(id -u)"
 NOTIFIER=""
+APP_BUNDLE=""
 
 if [ ! -f "$SOURCE_SCRIPT" ]; then
   echo "Missing $SOURCE_SCRIPT"
@@ -40,6 +41,7 @@ for candidate in \
   "$HOME/Applications/FastVPN Switcher.app/Contents/MacOS/FastVPNSwitcher"; do
   if [ -x "$candidate" ]; then
     NOTIFIER="$candidate"
+    APP_BUNDLE="$(dirname "$(dirname "$(dirname "$candidate")")")"
     break
   fi
 done
@@ -70,6 +72,8 @@ cat > "$PLIST" <<EOF
     <string>1</string>
     <key>FASTVPN_NOTIFIER</key>
     <string>$NOTIFIER</string>
+    <key>FASTVPN_APP_BUNDLE</key>
+    <string>$APP_BUNDLE</string>
   </dict>
 
   <key>RunAtLoad</key>

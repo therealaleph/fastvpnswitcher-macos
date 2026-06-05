@@ -3,6 +3,7 @@ import Foundation
 
 private let watcherLabel = "com.shin.fastvpnswitcher.watcher"
 private let menuLabel = "com.shin.fastvpnswitcher.menu"
+private let notificationName = Notification.Name("com.shin.fastvpnswitcher.notify")
 private let fm = FileManager.default
 
 private struct CommandResult {
@@ -42,22 +43,42 @@ private func xmlEscape(_ value: String) -> String {
 
 private func handleCommandLineMode() {
     let args = CommandLine.arguments
-    guard args.count >= 2, args[1] == "--notify" else {
+    guard args.count >= 2 else {
+        return
+    }
+
+    if args[1] == "--post-notification" {
+        let subtitle = args.count >= 3 ? args[2] : "FastVPN Switcher"
+        let body = args.count >= 4 ? args.dropFirst(3).joined(separator: " ") : ""
+        DistributedNotificationCenter.default().postNotificationName(
+            notificationName,
+            object: nil,
+            userInfo: ["subtitle": subtitle, "body": body],
+            deliverImmediately: true
+        )
+        exit(0)
+    }
+
+    guard args[1] == "--notify" else {
         return
     }
 
     let subtitle = args.count >= 3 ? args[2] : "FastVPN Switcher"
     let body = args.count >= 4 ? args.dropFirst(3).joined(separator: " ") : ""
+    deliverNotification(subtitle: subtitle, body: body)
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.75))
+    exit(0)
+}
+
+private func deliverNotification(subtitle: String, body: String) {
     let notification = NSUserNotification()
     notification.title = "FastVPN Switcher"
     notification.subtitle = subtitle
     notification.informativeText = body
     NSUserNotificationCenter.default.deliver(notification)
-    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.75))
-    exit(0)
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUserNotificationCenterDelegate {
     private let uid = getuid()
     private let home = NSHomeDirectory()
     private var statusItem: NSStatusItem!
@@ -92,6 +113,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NSUserNotificationCenter.default.delegate = self
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleDistributedNotification(_:)),
+            name: notificationName,
+            object: nil
+        )
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.toolTip = "FastVPN Switcher"
@@ -108,6 +136,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         refreshStatus()
+    }
+
+    func userNotificationCenter(_ center: NSUserNotificationCenter, shouldPresent notification: NSUserNotification) -> Bool {
+        true
+    }
+
+    @objc private func handleDistributedNotification(_ notification: Notification) {
+        let subtitle = notification.userInfo?["subtitle"] as? String ?? "FastVPN Switcher"
+        let body = notification.userInfo?["body"] as? String ?? ""
+        deliverNotification(subtitle: subtitle, body: body)
     }
 
     private func refreshStatus() {
@@ -483,7 +521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func writeMenuPlist() {
-        guard let executable = Bundle.main.executableURL?.path else { return }
+        let bundlePath = Bundle.main.bundlePath
         try? fm.createDirectory(atPath: launchAgentsDir, withIntermediateDirectories: true)
 
         let plist = """
@@ -497,7 +535,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
           <key>ProgramArguments</key>
           <array>
-            <string>\(xmlEscape(executable))</string>
+            <string>/usr/bin/open</string>
+            <string>-g</string>
+            <string>\(xmlEscape(bundlePath))</string>
           </array>
 
           <key>RunAtLoad</key>

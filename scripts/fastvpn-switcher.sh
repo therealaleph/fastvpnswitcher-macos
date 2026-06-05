@@ -100,14 +100,44 @@ notifier_path() {
   return 1
 }
 
+app_bundle_path() {
+  local candidate
+
+  for candidate in \
+    "${FASTVPN_APP_BUNDLE:-}" \
+    "/Applications/FastVPN Switcher.app" \
+    "$HOME/Applications/FastVPN Switcher.app"; do
+    if [ -d "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+menu_app_running() {
+  pgrep -x FastVPNSwitcher >/dev/null 2>&1
+}
+
 notify() {
   local title="$1"
   local body="$2"
   local notifier
+  local app_bundle
 
   notifications_enabled || return 0
 
   notifier="$(notifier_path || true)"
+  if [ -n "$notifier" ] && menu_app_running; then
+    "$notifier" --post-notification "$title" "$body" >> "$LOG_FILE" 2>&1 && return 0
+  fi
+
+  app_bundle="$(app_bundle_path || true)"
+  if [ -n "$app_bundle" ]; then
+    /usr/bin/open -g "$app_bundle" --args --notify "$title" "$body" >> "$LOG_FILE" 2>&1 && return 0
+  fi
+
   if [ -n "$notifier" ]; then
     "$notifier" --notify "$title" "$body" >> "$LOG_FILE" 2>&1 && return 0
   fi

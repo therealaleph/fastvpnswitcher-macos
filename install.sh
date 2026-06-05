@@ -40,6 +40,8 @@ echo "Installing app to $APP_PATH"
 rm -rf "$APP_PATH"
 ditto "$FOUND_APP" "$APP_PATH"
 xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
+touch "$APP_PATH"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH" >/dev/null 2>&1 || true
 
 mkdir -p "$HOME/Library/Scripts" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 install -m 755 "$APP_PATH/Contents/Resources/fastvpn-switcher.sh" "$WATCHER_SCRIPT"
@@ -73,6 +75,8 @@ cat > "$WATCHER_PLIST" <<EOF
     <string>1</string>
     <key>FASTVPN_NOTIFIER</key>
     <string>$APP_PATH/Contents/MacOS/FastVPNSwitcher</string>
+    <key>FASTVPN_APP_BUNDLE</key>
+    <string>$APP_PATH</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -96,7 +100,9 @@ cat > "$MENU_PLIST" <<EOF
   <string>$LABEL_MENU</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$APP_PATH/Contents/MacOS/FastVPNSwitcher</string>
+    <string>/usr/bin/open</string>
+    <string>-g</string>
+    <string>$APP_PATH</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
