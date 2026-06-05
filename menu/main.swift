@@ -40,6 +40,23 @@ private func xmlEscape(_ value: String) -> String {
         .replacingOccurrences(of: "'", with: "&apos;")
 }
 
+private func handleCommandLineMode() {
+    let args = CommandLine.arguments
+    guard args.count >= 2, args[1] == "--notify" else {
+        return
+    }
+
+    let subtitle = args.count >= 3 ? args[2] : "FastVPN Switcher"
+    let body = args.count >= 4 ? args.dropFirst(3).joined(separator: " ") : ""
+    let notification = NSUserNotification()
+    notification.title = "FastVPN Switcher"
+    notification.subtitle = subtitle
+    notification.informativeText = body
+    NSUserNotificationCenter.default.deliver(notification)
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.75))
+    exit(0)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let uid = getuid()
     private let home = NSHomeDirectory()
@@ -443,6 +460,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
             <key>TAILSCALE_BE_CLI</key>
             <string>1</string>
+            <key>FASTVPN_NOTIFIER</key>
+            <string>\(xmlEscape(Bundle.main.executableURL?.path ?? ""))</string>
           </dict>
 
           <key>RunAtLoad</key>
@@ -499,6 +518,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? plist.write(toFile: menuPlistPath, atomically: true, encoding: .utf8)
     }
 }
+
+handleCommandLineMode()
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

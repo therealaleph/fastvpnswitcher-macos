@@ -8,7 +8,10 @@ APP="$ROOT_DIR/dist/FastVPN Switcher.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
+swift "$ROOT_DIR/tools/generate-icon.swift" "$ROOT_DIR" >/dev/null
 cp "$ROOT_DIR/menu/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT_DIR/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+cp "$ROOT_DIR/assets/FastVPNSwitcherIcon.png" "$APP/Contents/Resources/FastVPNSwitcherIcon.png"
 cp "$ROOT_DIR/scripts/fastvpn-switcher.sh" "$APP/Contents/Resources/fastvpn-switcher.sh"
 chmod +x "$APP/Contents/Resources/fastvpn-switcher.sh"
 

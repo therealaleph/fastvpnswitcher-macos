@@ -71,6 +71,8 @@ cat > "$WATCHER_PLIST" <<EOF
     <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>TAILSCALE_BE_CLI</key>
     <string>1</string>
+    <key>FASTVPN_NOTIFIER</key>
+    <string>$APP_PATH/Contents/MacOS/FastVPNSwitcher</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

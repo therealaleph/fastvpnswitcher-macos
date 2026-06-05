@@ -10,6 +10,7 @@ LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
 PLIST="$LAUNCH_AGENT_DIR/com.shin.fastvpnswitcher.watcher.plist"
 LABEL="com.shin.fastvpnswitcher.watcher"
 UID_VALUE="$(id -u)"
+NOTIFIER=""
 
 if [ ! -f "$SOURCE_SCRIPT" ]; then
   echo "Missing $SOURCE_SCRIPT"
@@ -33,6 +34,15 @@ stop_legacy_draft() {
 }
 
 stop_legacy_draft
+
+for candidate in \
+  "/Applications/FastVPN Switcher.app/Contents/MacOS/FastVPNSwitcher" \
+  "$HOME/Applications/FastVPN Switcher.app/Contents/MacOS/FastVPNSwitcher"; do
+  if [ -x "$candidate" ]; then
+    NOTIFIER="$candidate"
+    break
+  fi
+done
 
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$LAUNCH_AGENT_DIR"
@@ -58,6 +68,8 @@ cat > "$PLIST" <<EOF
     <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>TAILSCALE_BE_CLI</key>
     <string>1</string>
+    <key>FASTVPN_NOTIFIER</key>
+    <string>$NOTIFIER</string>
   </dict>
 
   <key>RunAtLoad</key>

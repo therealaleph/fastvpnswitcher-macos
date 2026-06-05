@@ -84,11 +84,34 @@ notifications_enabled() {
   [ "$(config_get notifications 1)" = "1" ]
 }
 
+notifier_path() {
+  local candidate
+
+  for candidate in \
+    "${FASTVPN_NOTIFIER:-}" \
+    "/Applications/FastVPN Switcher.app/Contents/MacOS/FastVPNSwitcher" \
+    "$HOME/Applications/FastVPN Switcher.app/Contents/MacOS/FastVPNSwitcher"; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 notify() {
   local title="$1"
   local body="$2"
+  local notifier
 
   notifications_enabled || return 0
+
+  notifier="$(notifier_path || true)"
+  if [ -n "$notifier" ]; then
+    "$notifier" --notify "$title" "$body" >> "$LOG_FILE" 2>&1 && return 0
+  fi
+
   command -v osascript >/dev/null 2>&1 || return 0
 
   /usr/bin/osascript >/dev/null 2>&1 <<EOF || true

@@ -20,6 +20,13 @@ plutil -lint "$ROOT_DIR/menu/Info.plist"
 echo "swift compile"
 swiftc -framework AppKit "$ROOT_DIR/menu/main.swift" -o "$TMP_DIR/FastVPNSwitcher"
 
+echo "icon assets"
+swift "$ROOT_DIR/tools/generate-icon.swift" "$ROOT_DIR" >/dev/null
+test -f "$ROOT_DIR/assets/AppIcon.icns"
+test -f "$ROOT_DIR/assets/FastVPNSwitcherIcon.png"
+sips -g pixelWidth -g pixelHeight "$ROOT_DIR/assets/FastVPNSwitcherIcon.png" 2>/dev/null | grep -q 'pixelWidth: 1024'
+sips -g pixelWidth -g pixelHeight "$ROOT_DIR/assets/FastVPNSwitcherIcon.png" 2>/dev/null | grep -q 'pixelHeight: 1024'
+
 echo "provider detection: warp"
 mkdir -p "$TMP_DIR/bin" "$TMP_DIR/config" "$TMP_DIR/logs"
 cat > "$TMP_DIR/bin/warp-cli" <<'EOF'
