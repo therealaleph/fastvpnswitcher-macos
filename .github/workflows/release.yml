@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: ./test.sh
+      - name: Package
+        run: ./package.sh
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/FastVPN-Switcher.zip
+            dist/FastVPN-Switcher.dmg
+          generate_release_notes: true
