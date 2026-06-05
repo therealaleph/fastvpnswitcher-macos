@@ -231,37 +231,51 @@ provider_ids() {
 
 network_fingerprint() {
   {
-    scutil --nwi 2>/dev/null | awk '
-      /^[[:space:]]+en[0-9]+[[:space:]]*:/ {
-        iface=$1
-        sub(/:$/, "", iface)
-        print "iface=" iface
+    networksetup -listallhardwareports 2>/dev/null | awk '
+      /^Hardware Port:/ {
+        port=$0
+        sub(/^Hardware Port:[[:space:]]*/, "", port)
         next
       }
-      iface != "" && /^[[:space:]]+address[[:space:]]*:/ {
-        gsub(/^[[:space:]]+/, "")
-        print iface ":" $0
-        next
+      /^Device:[[:space:]]*en[0-9]+$/ {
+        print $2 "|" port
       }
-      iface != "" && /^[[:space:]]+reach[[:space:]]*:/ {
-        gsub(/^[[:space:]]+/, "")
-        print iface ":" $0
-        next
-      }
-      /^[^[:space:]]/ { iface="" }
-      /^$/ { iface="" }
-    '
+    ' | while IFS='|' read -r device port; do
+      [ -n "$device" ] || continue
 
-    wifi_device="$(networksetup -listallhardwareports 2>/dev/null | awk '
-      /Hardware Port: Wi-Fi/ {
-        getline
-        print $2
-        exit
-      }
-    ')"
-    if [ -n "$wifi_device" ]; then
-      networksetup -getairportnetwork "$wifi_device" 2>/dev/null | sed 's/^/wifi=/'
-    fi
+      printf 'iface=%s port=%s\n' "$device" "$port"
+
+      ifconfig "$device" 2>/dev/null | awk -v device="$device" '
+        /^[[:space:]]*status:/ {
+          print "iface=" device " status=" $2
+          exit
+        }
+      '
+
+      ipconfig getifaddr "$device" 2>/dev/null | awk -v device="$device" '
+        NF {
+          print "iface=" device " ipv4=" $0
+          exit
+        }
+      '
+
+      case "$port" in
+        Wi-Fi|AirPort)
+          wifi_line="$(networksetup -getairportnetwork "$device" 2>/dev/null || true)"
+          case "$wifi_line" in
+            "Current Wi-Fi Network: "*)
+              printf 'wifi=%s ssid=%s\n' "$device" "${wifi_line#Current Wi-Fi Network: }"
+              ;;
+            *"not associated"*)
+              printf 'wifi=%s ssid=\n' "$device"
+              ;;
+            *)
+              [ -n "$wifi_line" ] && printf 'wifi=%s raw=%s\n' "$device" "$wifi_line"
+              ;;
+          esac
+          ;;
+      esac
+    done
   } | LC_ALL=C sort | shasum | awk '{print $1}'
 }
 

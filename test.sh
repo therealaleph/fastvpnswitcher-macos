@@ -66,17 +66,24 @@ rm -rf "$TMP_DIR/bin" "$TMP_DIR/config" "$TMP_DIR/logs"
 mkdir -p "$TMP_DIR/bin" "$TMP_DIR/config" "$TMP_DIR/logs"
 printf '%s\n' connected > "$TMP_DIR/vpn-state"
 printf '%s\n' Home > "$TMP_DIR/ssid"
+printf '%s\n' active > "$TMP_DIR/en0-status"
+printf '%s\n' 192.168.1.25 > "$TMP_DIR/en0-ipv4"
 printf '%s\n' notifications=0 > "$TMP_DIR/config/config"
 cat > "$TMP_DIR/bin/scutil" <<'EOF'
 #!/bin/bash
 if [ "$1" = "--nwi" ]; then
+  if [ "$(cat "$TMPDIR/vpn-state")" = connected ]; then
+    reach="0x00000002 (Reachable)"
+  else
+    reach="0x00000003 (Reachable,Transient Connection)"
+  fi
   cat <<NWI
 Network information
 
 IPv4 network interface information
      en0 : flags      : 0x5 (IPv4,DNS)
            address    : 192.168.1.25
-           reach      : 0x00000002 (Reachable)
+           reach      : $reach
 
 Network interfaces: en0 utun0
 NWI
@@ -94,6 +101,21 @@ elif [ "\$1" = "-getairportnetwork" ]; then
   echo "Current Wi-Fi Network: \$(cat "$TMP_DIR/ssid")"
 fi
 EOF
+cat > "$TMP_DIR/bin/ifconfig" <<EOF
+#!/bin/bash
+if [ "\$1" = "en0" ]; then
+  cat <<IFCONFIG
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	status: \$(cat "$TMP_DIR/en0-status")
+IFCONFIG
+fi
+EOF
+cat > "$TMP_DIR/bin/ipconfig" <<EOF
+#!/bin/bash
+if [ "\$1" = "getifaddr" ] && [ "\$2" = "en0" ]; then
+  cat "$TMP_DIR/en0-ipv4"
+fi
+EOF
 cat > "$TMP_DIR/bin/warp-cli" <<EOF
 #!/bin/bash
 case "\$*" in
@@ -108,7 +130,7 @@ case "\$*" in
   *connect*) echo connect >> "$TMP_DIR/actions" ;;
 esac
 EOF
-chmod +x "$TMP_DIR/bin/scutil" "$TMP_DIR/bin/networksetup" "$TMP_DIR/bin/warp-cli"
+chmod +x "$TMP_DIR/bin/scutil" "$TMP_DIR/bin/networksetup" "$TMP_DIR/bin/ifconfig" "$TMP_DIR/bin/ipconfig" "$TMP_DIR/bin/warp-cli"
 TMPDIR="$TMP_DIR" FASTVPN_EXTRA_PATH="$TMP_DIR/bin" FASTVPN_PROVIDER_IDS="cloudflare_warp" CONFIG_DIR="$TMP_DIR/config" LOG_DIR="$TMP_DIR/logs" \
   POLL_SECONDS=1 DEBOUNCE_SECONDS=1 "$ROOT_DIR/scripts/fastvpn-switcher.sh" --watch &
 watch_pid=$!
