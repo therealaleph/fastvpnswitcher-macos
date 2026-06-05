@@ -252,17 +252,6 @@ network_fingerprint() {
       /^$/ { iface="" }
     '
 
-    route -n get default 2>/dev/null | awk '
-      /gateway:/ { gateway=$2 }
-      /interface:/ { iface=$2 }
-      END {
-        if (iface != "" && iface !~ /^utun/ && iface !~ /^lo/) {
-          print "default_interface=" iface
-          if (gateway != "") print "default_gateway=" gateway
-        }
-      }
-    '
-
     wifi_device="$(networksetup -listallhardwareports 2>/dev/null | awk '
       /Hardware Port: Wi-Fi/ {
         getline
@@ -811,6 +800,12 @@ watch_loop() {
 
     current_fingerprint="$(network_fingerprint)"
     if [ "$current_fingerprint" = "$last_fingerprint" ]; then
+      if [ -z "$current_vpn" ] && [ -n "$last_vpn" ]; then
+        log "vpn disconnected while physical network stayed the same; treating as intentional"
+        last_vpn=""
+        last_vpn_detail=""
+        last_vpn_seen_at=0
+      fi
       continue
     fi
 
