@@ -64,4 +64,15 @@ These do not currently expose a reliable macOS CLI path that can disconnect and 
 tail -f "$HOME/Library/Logs/fastvpn-switcher.log"
 ```
 
+## Power behavior
+
+The watcher uses a slow physical-network fingerprint check by default. It checks the physical network at most every 30 seconds and refreshes VPN status every 120 seconds while the network is stable.
+
+Advanced launchd environment overrides:
+
+- `POLL_SECONDS`: maximum seconds between physical network fingerprint checks
+- `VPN_HEARTBEAT_SECONDS`: seconds between VPN status refreshes when the network is unchanged
+- `FASTVPN_USE_ROUTE_MONITOR=1`: opt in to routing-socket events for faster reaction; noisier on some systems
+- `FASTVPN_PROVIDER_IDS`: comma/space-separated provider IDs to scan, useful if you only use one VPN client
+
 Credit: Shin (x.com/hey_itsmyturn)

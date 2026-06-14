@@ -6,7 +6,9 @@ APP_NAME="FastVPN Switcher"
 export PATH="${FASTVPN_EXTRA_PATH:+$FASTVPN_EXTRA_PATH:}/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 export TAILSCALE_BE_CLI="${TAILSCALE_BE_CLI:-1}"
 
-POLL_SECONDS="${POLL_SECONDS:-1}"
+POLL_SECONDS="${POLL_SECONDS:-30}"
+VPN_HEARTBEAT_SECONDS="${VPN_HEARTBEAT_SECONDS:-120}"
+FASTVPN_USE_ROUTE_MONITOR="${FASTVPN_USE_ROUTE_MONITOR:-0}"
 DEBOUNCE_SECONDS="${DEBOUNCE_SECONDS:-2}"
 COOLDOWN_SECONDS="${COOLDOWN_SECONDS:-10}"
 LAST_VPN_WINDOW_SECONDS="${LAST_VPN_WINDOW_SECONDS:-90}"
@@ -16,6 +18,8 @@ CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config}"
 LOG_DIR="${LOG_DIR:-$HOME/Library/Logs}"
 LOG_FILE="${LOG_FILE:-$LOG_DIR/fastvpn-switcher.log}"
 LOCK_DIR="${TMPDIR:-/tmp}/fastvpn-switcher.lock"
+NETWORK_MONITOR_FIFO=""
+NETWORK_MONITOR_PID=""
 
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
@@ -748,6 +752,13 @@ list_providers() {
 }
 
 cleanup() {
+  if [ -n "${NETWORK_MONITOR_PID:-}" ]; then
+    kill "$NETWORK_MONITOR_PID" >/dev/null 2>&1 || true
+    wait "$NETWORK_MONITOR_PID" 2>/dev/null || true
+  fi
+  if [ -n "${NETWORK_MONITOR_FIFO:-}" ]; then
+    rm -f "$NETWORK_MONITOR_FIFO" 2>/dev/null || true
+  fi
   rm -f "$LOCK_DIR/pid" 2>/dev/null || true
   rmdir "$LOCK_DIR" 2>/dev/null || true
 }
@@ -783,42 +794,110 @@ acquire_lock() {
   exit 1
 }
 
+positive_int_or_default() {
+  local value="$1"
+  local default_value="$2"
+
+  case "$value" in
+    ''|*[!0-9]*)
+      printf '%s\n' "$default_value"
+      ;;
+    *)
+      if [ "$value" -gt 0 ]; then
+        printf '%s\n' "$value"
+      else
+        printf '%s\n' "$default_value"
+      fi
+      ;;
+  esac
+}
+
+start_network_monitor() {
+  [ -x /sbin/route ] || return 1
+
+  NETWORK_MONITOR_FIFO="$LOCK_DIR/network-events"
+  rm -f "$NETWORK_MONITOR_FIFO" 2>/dev/null || true
+  mkfifo "$NETWORK_MONITOR_FIFO" || return 1
+
+  /sbin/route -n monitor > "$NETWORK_MONITOR_FIFO" 2>/dev/null &
+  NETWORK_MONITOR_PID="$!"
+
+  exec 3<>"$NETWORK_MONITOR_FIFO" || return 1
+}
+
+wait_for_network_event() {
+  local timeout="$1"
+  local line
+
+  timeout="$(positive_int_or_default "$timeout" 30)"
+
+  if [ -n "${NETWORK_MONITOR_PID:-}" ] && kill -0 "$NETWORK_MONITOR_PID" 2>/dev/null; then
+    if IFS= read -r -t "$timeout" line <&3; then
+      while IFS= read -r -t 0 line <&3; do
+        :
+      done
+      return 0
+    fi
+    return 1
+  fi
+
+  sleep "$timeout"
+  return 1
+}
+
 watch_loop() {
   local last_fingerprint last_vpn last_vpn_detail last_vpn_seen_at last_reconnect_at
   local current_vpn current_id current_detail current_fingerprint current_time
   local vpn_to_reconnect vpn_detail_to_reconnect
+  local last_vpn_check_at
 
   acquire_lock
   trap cleanup EXIT
   trap shutdown INT TERM HUP
+
+  if [ "$FASTVPN_USE_ROUTE_MONITOR" = "1" ]; then
+    start_network_monitor || log "route monitor unavailable; falling back to timed polling"
+  fi
 
   last_fingerprint="$(network_fingerprint)"
   last_vpn=""
   last_vpn_detail=""
   last_vpn_seen_at=0
   last_reconnect_at=0
+  last_vpn_check_at="$(now)"
+
+  current_vpn="$(detect_connected_vpn || true)"
+  if [ -n "$current_vpn" ]; then
+    current_id="$(printf '%s' "$current_vpn" | cut -d'|' -f1)"
+    current_detail="$(printf '%s' "$current_vpn" | cut -d'|' -f3-)"
+    last_vpn="$current_id"
+    last_vpn_detail="$current_detail"
+    last_vpn_seen_at="$last_vpn_check_at"
+  fi
 
   log "started; initial network fingerprint=$last_fingerprint"
 
   while true; do
-    sleep "$POLL_SECONDS"
-
-    current_vpn="$(detect_connected_vpn || true)"
-    if [ -n "$current_vpn" ]; then
-      current_id="$(printf '%s' "$current_vpn" | cut -d'|' -f1)"
-      current_detail="$(printf '%s' "$current_vpn" | cut -d'|' -f3-)"
-      last_vpn="$current_id"
-      last_vpn_detail="$current_detail"
-      last_vpn_seen_at="$(now)"
-    fi
+    wait_for_network_event "$POLL_SECONDS" || true
+    current_time="$(now)"
 
     current_fingerprint="$(network_fingerprint)"
     if [ "$current_fingerprint" = "$last_fingerprint" ]; then
-      if [ -z "$current_vpn" ] && [ -n "$last_vpn" ]; then
-        log "vpn disconnected while physical network stayed the same; treating as intentional"
-        last_vpn=""
-        last_vpn_detail=""
-        last_vpn_seen_at=0
+      if [ $((current_time - last_vpn_check_at)) -ge "$(positive_int_or_default "$VPN_HEARTBEAT_SECONDS" 120)" ]; then
+        current_vpn="$(detect_connected_vpn || true)"
+        last_vpn_check_at="$current_time"
+        if [ -n "$current_vpn" ]; then
+          current_id="$(printf '%s' "$current_vpn" | cut -d'|' -f1)"
+          current_detail="$(printf '%s' "$current_vpn" | cut -d'|' -f3-)"
+          last_vpn="$current_id"
+          last_vpn_detail="$current_detail"
+          last_vpn_seen_at="$current_time"
+        elif [ -n "$last_vpn" ]; then
+          log "vpn disconnected while physical network stayed the same; treating as intentional"
+          last_vpn=""
+          last_vpn_detail=""
+          last_vpn_seen_at=0
+        fi
       fi
       continue
     fi
@@ -835,6 +914,7 @@ watch_loop() {
     fi
 
     current_vpn="$(detect_connected_vpn || true)"
+    last_vpn_check_at="$current_time"
     if [ -n "$current_vpn" ]; then
       vpn_to_reconnect="$(printf '%s' "$current_vpn" | cut -d'|' -f1)"
       vpn_detail_to_reconnect="$(printf '%s' "$current_vpn" | cut -d'|' -f3-)"

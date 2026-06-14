@@ -4,6 +4,7 @@ import Foundation
 private let watcherLabel = "com.shin.fastvpnswitcher.watcher"
 private let menuLabel = "com.shin.fastvpnswitcher.menu"
 private let notificationName = Notification.Name("com.shin.fastvpnswitcher.notify")
+private let statusRefreshInterval: TimeInterval = 30
 private let fm = FileManager.default
 
 private struct CommandResult {
@@ -92,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUser
     private var notificationsOn = true
     private var vpnSummary = "VPN: checking..."
     private var lastAction = ""
+    private var lastStatusRefresh = Date.distantPast
 
     private var launchAgentsDir: String { "\(home)/Library/LaunchAgents" }
     private var scriptsDir: String { "\(home)/Library/Scripts" }
@@ -128,14 +130,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUser
         menu.delegate = self
         statusItem.menu = menu
 
-        refreshStatus()
-        timer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in
-            self?.refreshStatus()
+        refreshStatus(force: true)
+        timer = Timer.scheduledTimer(withTimeInterval: statusRefreshInterval, repeats: true) { [weak self] _ in
+            self?.refreshStatus(force: true)
         }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        refreshStatus()
+        refreshStatus(force: true)
     }
 
     func userNotificationCenter(_ center: NSUserNotificationCenter, shouldPresent notification: NSUserNotification) -> Bool {
@@ -148,13 +150,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUser
         deliverNotification(subtitle: subtitle, body: body)
     }
 
-    private func refreshStatus() {
+    private func refreshStatus(force: Bool = false) {
         watcherRunning = isServiceRunning(watcherLabel)
         watcherStartup = isStartupEnabled(label: watcherLabel, plistPath: watcherPlistPath)
         menuStartup = fm.fileExists(atPath: menuPlistPath) && !isServiceDisabled(menuLabel)
-        vpnSummary = detectVPN()
-        vpnConnected = hasConnectedVPN()
-        notificationsOn = notificationsEnabled()
+
+        let now = Date()
+        if force || now.timeIntervalSince(lastStatusRefresh) >= statusRefreshInterval {
+            let vpnStatus = detectVPNStatus()
+            vpnSummary = vpnStatus.summary
+            vpnConnected = vpnStatus.connected
+            notificationsOn = notificationsEnabled()
+            lastStatusRefresh = now
+        }
+
         updateIcon()
         rebuildMenu()
     }
@@ -327,15 +336,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUser
         run("/bin/bash", [activeWatcherScriptPath] + arguments)
     }
 
-    private func detectVPN() -> String {
+    private func detectVPNStatus() -> (summary: String, connected: Bool) {
         let result = runWatcherScript(["--status-human"])
         let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return output.isEmpty ? "VPN: none connected" : output
-    }
-
-    private func hasConnectedVPN() -> Bool {
-        let result = runWatcherScript(["--status"])
-        return result.status == 0 && !result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if output.isEmpty {
+            return ("VPN: none connected", false)
+        }
+        return (output, result.status == 0)
     }
 
     private func notificationsEnabled() -> Bool {
@@ -348,12 +355,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUser
         } else {
             startWatcher()
         }
-        refreshStatus()
+        refreshStatus(force: true)
     }
 
     @objc private func installWatcherFromMenu() {
         installWatcher(startAfterInstall: true)
-        refreshStatus()
+        refreshStatus(force: true)
     }
 
     @objc private func toggleWatcherStartup() {
@@ -365,7 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUser
             run("/bin/launchctl", ["enable", "\(launchDomain)/\(watcherLabel)"])
             lastAction = "Watcher login startup: on"
         }
-        refreshStatus()
+        refreshStatus(force: true)
     }
 
     @objc private func toggleMenuStartup() {
@@ -378,7 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUser
             run("/bin/launchctl", ["enable", "\(launchDomain)/\(menuLabel)"])
             lastAction = "V icon login startup: on"
         }
-        refreshStatus()
+        refreshStatus(force: true)
     }
 
     @objc private func toggleNotifications() {
@@ -386,13 +393,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSUser
         let result = runWatcherScript(["--notifications", newValue])
         let value = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         lastAction = "Notifications: \(value.isEmpty ? newValue : value)"
-        refreshStatus()
+        refreshStatus(force: true)
     }
 
     @objc private func reconnectCurrentVPN() {
         let result = runWatcherScript(["--reconnect-current"])
         lastAction = result.status == 0 ? "Reconnect requested" : "Reconnect unavailable"
-        refreshStatus()
+        refreshStatus(force: true)
     }
 
     @objc private func openGitHub() {
